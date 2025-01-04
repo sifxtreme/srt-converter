@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, Download, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { API_BASE_URL } from '@/config';
+import { API_BASE_URL, API_ENDPOINTS } from '@/config';
+import { fetchWithCredentials } from '../lib/utils';
 
 const SubtitleTranslator = () => {
   const [file, setFile] = useState(null);
@@ -13,6 +14,105 @@ const SubtitleTranslator = () => {
   const [error, setError] = useState(null);
   const [progress, setProgress] = useState(null);
   const [uploadPreview, setUploadPreview] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.AUTH_STATUS}`, {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      setIsAuthenticated(data.isAuthenticated);
+      setUser(data.user);
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+
+    console.log('Attempting login with:', { email }); // Don't log passwords!
+
+    try {
+      const response = await fetchWithCredentials(`${API_BASE_URL}${API_ENDPOINTS.LOGIN}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      console.log('Login response status:', response.status);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Login failed');
+      }
+
+      const data = await response.json();
+      console.log('Login successful:', data);
+      setUser(data.user);
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error('Login error:', error);
+      setLoginError(error.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    window.location.href = `${API_BASE_URL}${API_ENDPOINTS.LOGOUT}`;
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
+          <h1 className="text-2xl font-bold text-center">Login</h1>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                required
+              />
+            </div>
+            {loginError && (
+              <div className="text-red-500 text-sm">{loginError}</div>
+            )}
+            <button
+              type="submit"
+              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Sign in
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -25,30 +125,38 @@ const SubtitleTranslator = () => {
     }
   };
 
-  const handleUpload = async () => {
-    if (!file) return;
+  const fetchOptions = {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  };
 
-    setUploading(true);
-    setError(null);
+  const uploadFile = async (file) => {
+    const formData = new FormData();
+    formData.append('srt', file);
 
     try {
-      const formData = new FormData();
-      formData.append('srt', file);
-
-      const response = await fetch(`${API_BASE_URL}/upload`, {
+      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.UPLOAD}`, {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Please log in to upload files');
+        }
+        throw new Error('Upload failed');
+      }
 
       const data = await response.json();
       setCurrentSetId(data.setId);
       setUploadPreview(data);
-    } catch (err) {
-      setError('Failed to upload file: ' + err.message);
-    } finally {
-      setUploading(false);
+      return data;
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw error;
     }
   };
 
@@ -59,7 +167,9 @@ const SubtitleTranslator = () => {
     setProgress({ current: 0, total: 0 });
 
     // Set up SSE connection
-    const eventSource = new EventSource(`${API_BASE_URL}/translation-progress/${setId}`);
+    const eventSource = new EventSource(`${API_BASE_URL}/translation-progress/${setId}`, {
+      withCredentials: true
+    });
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -68,18 +178,33 @@ const SubtitleTranslator = () => {
       if (data.completed) {
         eventSource.close();
         setTranslating(false);
+        // Ensure the progress shows completion state
+        setProgress({
+          ...data,
+          current: data.total,
+          completed: true
+        });
       }
     };
 
     // Start translation
     try {
-      const response = await fetch(`${API_BASE_URL}/translate/${setId}`, {
+      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.TRANSLATE(setId)}`, {
         method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Please log in to translate files');
+        }
         throw new Error('Translation failed');
       }
+
+      await response.json();
     } catch (error) {
       console.error('Translation error:', error);
       eventSource.close();
@@ -93,7 +218,7 @@ const SubtitleTranslator = () => {
     if (!currentSetId) return;
 
     try {
-      window.location.href = `${API_BASE_URL}/download/${currentSetId}`;
+      window.location.href = `${API_BASE_URL}${API_ENDPOINTS.DOWNLOAD(currentSetId)}`;
     } catch (err) {
       setError('Failed to download file: ' + err.message);
     }
@@ -164,7 +289,7 @@ const SubtitleTranslator = () => {
 
         <CardFooter className="flex justify-between">
           <Button
-            onClick={handleUpload}
+            onClick={() => uploadFile(file)}
             disabled={!file || uploading}
           >
             {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -191,16 +316,23 @@ const SubtitleTranslator = () => {
         </CardFooter>
 
         {progress && (
-          <div className="mt-4">
+          <div className="mt-4 p-4">
             <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
               <div
                 className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                style={{
+                  width: progress.total ? `${(progress.current / progress.total) * 100}%` : '0%'
+                }}
               ></div>
             </div>
             <p className="text-sm text-gray-600 mt-2">
-              Translating: {progress.current} of {progress.total} subtitles
-              {progress.completed && " - Complete!"}
+              {progress.completed ? (
+                "Translation completed!"
+              ) : (
+                progress.total ?
+                  `Translating: ${progress.current} of ${progress.total} subtitles` :
+                  "Preparing translation..."
+              )}
             </p>
           </div>
         )}

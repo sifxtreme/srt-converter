@@ -5,6 +5,8 @@ import pkg from 'pg';
 import { promises as fs } from 'fs';
 import cors from 'cors';
 import { EventEmitter } from 'events';
+import session from 'express-session';
+import bcrypt from 'bcrypt';
 
 const progressEmitter = new EventEmitter();
 
@@ -23,12 +25,34 @@ const translator = new AWSTranslator(
 
 const app = express();
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173']
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 
+// Add session middleware here, before any routes
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
 // Configure multer for file upload
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: '/tmp/srt-uploads',
+    filename: (req, file, cb) => {
+      cb(null, `${Date.now()}-${file.originalname}`);
+    },
+  }),
+});
 
 // PostgreSQL connection
 const pool = new Pool({
@@ -72,8 +96,16 @@ function generateSRT(subtitles) {
     .join('\n');
 }
 
+// Authentication middleware
+const isAuthenticated = (req, res, next) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ error: 'Unauthorized - Please log in' });
+  }
+  next();
+};
+
 // Upload endpoint
-app.post('/upload', upload.single('srt'), async (req, res) => {
+app.post('/upload', isAuthenticated, upload.single('srt'), async (req, res) => {
   try {
     const fileContent = await fs.readFile(req.file.path, 'utf-8');
     const subtitles = parseSRT(fileContent);
@@ -127,13 +159,15 @@ app.post('/upload', upload.single('srt'), async (req, res) => {
 });
 
 // Add a new endpoint for SSE connection
-app.get('/translation-progress/:setId', (req, res) => {
+app.get('/translation-progress/:setId', isAuthenticated, (req, res) => {
   const { setId } = req.params;
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',
+    'Access-Control-Allow-Credentials': 'true'
   });
 
   const listener = (progress) => {
@@ -150,7 +184,7 @@ app.get('/translation-progress/:setId', (req, res) => {
 });
 
 // Update the translation endpoint
-app.post('/translate/:setId', async (req, res) => {
+app.post('/translate/:setId', isAuthenticated, async (req, res) => {
   try {
     const { setId } = req.params;
     const client = await pool.connect();
@@ -225,7 +259,7 @@ app.post('/translate/:setId', async (req, res) => {
 });
 
 // Download endpoint
-app.get('/download/:setId', async (req, res) => {
+app.get('/download/:setId', isAuthenticated, async (req, res) => {
   try {
     const { setId } = req.params;
     const { rows } = await pool.query(
@@ -246,6 +280,56 @@ app.get('/download/:setId', async (req, res) => {
     console.error(error);
     res.status(500).json({ error: 'Failed to download subtitles' });
   }
+});
+
+// Login endpoint
+app.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  console.log('Login attempt:', { email }); // Don't log passwords!
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    console.log('User found:', !!result.rows[0]);
+
+    const user = result.rows[0];
+
+    if (!user) {
+      console.log('No user found with this email');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('User found:', user);
+
+    console.log('Password:', password);
+
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    console.log('Password valid:', validPassword);
+
+    if (!validPassword) {
+      console.log('Invalid password');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    req.session.user = { id: user.id, email: user.email };
+    res.json({ success: true, user: { email: user.email } });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Auth status endpoint
+app.get('/auth/status', (req, res) => {
+  res.json({
+    isAuthenticated: !!req.session.user,
+    user: req.session.user
+  });
+});
+
+// Logout endpoint
+app.get('/auth/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 3001;
