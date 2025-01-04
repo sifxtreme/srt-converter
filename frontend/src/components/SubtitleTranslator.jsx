@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { API_BASE_URL, API_ENDPOINTS } from '@/config';
 import { fetchWithCredentials } from '../lib/utils';
 
+
 const SubtitleTranslator = () => {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -231,60 +232,60 @@ const SubtitleTranslator = () => {
           <CardTitle>SRT Translator</CardTitle>
           <CardDescription>Upload an SRT file to translate it to Spanish</CardDescription>
         </CardHeader>
-
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-center w-full">
-            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-              <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <Upload className="w-8 h-8 mb-2 text-gray-500" />
-                <p className="mb-2 text-sm text-gray-500">
-                  <span className="font-semibold">Click to upload</span> or drag and drop
-                </p>
-                <p className="text-xs text-gray-500">.srt files only</p>
-              </div>
-              <input
-                type="file"
-                className="hidden"
-                accept=".srt"
-                onChange={handleFileChange}
-              />
-            </label>
+
+        <div className="flex items-center justify-center w-full">
+          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+              <Upload className="w-8 h-8 mb-2 text-gray-500" />
+              <p className="mb-2 text-sm text-gray-500">
+                <span className="font-semibold">Click to upload</span> or drag and drop
+              </p>
+              <p className="text-xs text-gray-500">.srt files only</p>
+            </div>
+            <input
+              type="file"
+              className="hidden"
+              accept=".srt"
+              onChange={handleFileChange}
+            />
+          </label>
+        </div>
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {file && (
+          <div className="text-sm text-gray-500">
+            Selected file: {file.name}
           </div>
+        )}
 
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {file && (
-            <div className="text-sm text-gray-500">
-              Selected file: {file.name}
+        {uploadPreview && (
+          <div className="mt-4 space-y-4">
+            <div className="text-sm font-medium text-gray-700">
+              Successfully uploaded {uploadPreview.totalSubtitles} subtitles
             </div>
-          )}
-
-          {uploadPreview && (
-            <div className="mt-4 space-y-4">
-              <div className="text-sm font-medium text-gray-700">
-                Successfully uploaded {uploadPreview.totalSubtitles} subtitles
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-gray-700">Preview:</div>
-                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                  {uploadPreview.preview.map((subtitle) => (
-                    <div key={subtitle.index} className="space-y-1">
-                      <div className="text-xs text-gray-500">
-                        {subtitle.index} | {subtitle.timestamp}
-                      </div>
-                      <div className="text-sm text-gray-700">
-                        {subtitle.text}
-                      </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-700">Preview:</div>
+              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                {uploadPreview.preview.map((subtitle) => (
+                  <div key={subtitle.index} className="space-y-1">
+                    <div className="text-xs text-gray-500">
+                      {subtitle.index} | {subtitle.timestamp}
                     </div>
-                  ))}
-                </div>
+                    <div className="text-sm text-gray-700">
+                      {subtitle.text}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          )}
+          </div>
+        )}
         </CardContent>
 
         <CardFooter className="flex justify-between">
@@ -336,7 +337,7 @@ const SubtitleTranslator = () => {
             </p>
           </div>
         )}
-      </Card>
+        </Card>
     </div>
   );
 };
