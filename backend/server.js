@@ -1,19 +1,21 @@
 // server.js
+// third-party imports
+import bcrypt from 'bcrypt';
+import cors from 'cors';
+import dotenv from 'dotenv';
 import express from 'express';
+import session from 'express-session';
+import { EventEmitter } from 'events';
+import { promises as fs } from 'fs';
 import multer from 'multer';
 import pkg from 'pg';
-import { promises as fs } from 'fs';
-import cors from 'cors';
-import { EventEmitter } from 'events';
-import session from 'express-session';
-import bcrypt from 'bcrypt';
+// local imports
+import AWSTranslator from './translation-service.js';
+import { parseSRT, generateSRT } from './srt-utils.js';
 
 const progressEmitter = new EventEmitter();
 
 const { Pool } = pkg;
-
-import AWSTranslator from './translation-service.js';
-import dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -24,12 +26,16 @@ const translator = new AWSTranslator(
 );
 
 const app = express();
+
+// Configure CORS
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://srt.sifxtre.me'],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Parse JSON bodies
 app.use(express.json());
 
 // Add session middleware here, before any routes
@@ -62,39 +68,6 @@ const pool = new Pool({
   password: process.env.POSTGRES_PASSWORD,
   port: parseInt(process.env.POSTGRES_PORT) || 5432,
 });
-
-// Parse SRT content
-function parseSRT(content) {
-  const subtitles = [];
-  // Split by double newlines but handle both \r\n and \n line endings
-  const blocks = content.trim().split(/\r?\n\r?\n/);
-
-  console.log(blocks.length)
-
-  blocks.forEach(block => {
-    const lines = block.split('\n');
-    if (lines.length >= 3) {
-      const index = parseInt(lines[0]);
-      const timestamp = lines[1];
-      const text = lines.slice(2).join('\n');
-
-      subtitles.push({ index, timestamp, text });
-    }
-  });
-
-  console.log(subtitles.length);
-
-  return subtitles;
-}
-
-// Generate SRT content
-function generateSRT(subtitles) {
-  return subtitles
-    .map(sub => {
-      return `${sub.index}\n${sub.timestamp}\n${sub.text}\n`;
-    })
-    .join('\n');
-}
 
 // Authentication middleware
 const isAuthenticated = (req, res, next) => {
@@ -289,7 +262,6 @@ app.post('/auth/login', async (req, res) => {
 
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    console.log('User found:', !!result.rows[0]);
 
     const user = result.rows[0];
 
@@ -298,12 +270,7 @@ app.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    console.log('User found:', user);
-
-    console.log('Password:', password);
-
     const validPassword = await bcrypt.compare(password, user.password_hash);
-    console.log('Password valid:', validPassword);
 
     if (!validPassword) {
       console.log('Invalid password');
@@ -336,22 +303,3 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-// Database schema (run these SQL commands to set up your database)
-/*
-CREATE TABLE subtitle_sets (
-  id SERIAL PRIMARY KEY,
-  original_filename VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE subtitles (
-  id SERIAL PRIMARY KEY,
-  set_id INTEGER REFERENCES subtitle_sets(id),
-  index INTEGER NOT NULL,
-  timestamp VARCHAR(255) NOT NULL,
-  text TEXT NOT NULL,
-  translated_text TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-*/
