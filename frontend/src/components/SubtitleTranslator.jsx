@@ -265,13 +265,13 @@ const SubtitleTranslator = () => {
         )}
 
         {uploadPreview && (
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 space-y-4 border-2 border-gray-200 rounded-lg p-6 bg-white shadow-sm">
             <div className="text-sm font-medium text-gray-700">
               Successfully uploaded {uploadPreview.totalSubtitles} subtitles
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium text-gray-700">Preview:</div>
-              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <div className="bg-white border border-gray-100 rounded-lg p-4 space-y-3">
                 {uploadPreview.preview.map((subtitle) => (
                   <div key={subtitle.index} className="space-y-1">
                     <div className="text-xs text-gray-500">
@@ -288,32 +288,38 @@ const SubtitleTranslator = () => {
         )}
         </CardContent>
 
-        <CardFooter className="flex justify-between">
-          <Button
-            onClick={() => uploadFile(file)}
-            disabled={!file || uploading}
-          >
-            {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Upload
-          </Button>
+        <CardFooter className="flex justify-between items-center w-full">
+          <div className="flex-1">
+            <Button
+              onClick={() => uploadFile(file)}
+              disabled={!file || uploading}
+            >
+              {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Upload
+            </Button>
+          </div>
 
-          <Button
-            onClick={() => handleTranslate(currentSetId)}
-            disabled={!currentSetId || translating}
-            variant="secondary"
-          >
-            {translating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Translate to Spanish
-          </Button>
+          <div className="flex-1 flex justify-center">
+            <Button
+              onClick={() => handleTranslate(currentSetId)}
+              disabled={!currentSetId || translating}
+              variant="secondary"
+            >
+              {translating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Translate to Spanish
+            </Button>
+          </div>
 
-          <Button
-            onClick={handleDownload}
-            disabled={!currentSetId}
-            variant="outline"
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Download
-          </Button>
+          <div className="flex-1 flex justify-end">
+            <Button
+              onClick={handleDownload}
+              disabled={!currentSetId}
+              variant="outline"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download
+            </Button>
+          </div>
         </CardFooter>
 
         {progress && (

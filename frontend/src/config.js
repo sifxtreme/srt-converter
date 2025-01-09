@@ -1,4 +1,6 @@
-export const API_BASE_URL = 'http://localhost:3001';
+export const API_BASE_URL = import.meta.env.PROD
+  ? 'https://srt-api.sifxtre.me' // Replace with your production URL
+  : 'http://localhost:3001';
 
 export const API_ENDPOINTS = {
   LOGIN: '/auth/login',
