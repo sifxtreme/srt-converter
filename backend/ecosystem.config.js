@@ -1,7 +1,7 @@
 export default {
   apps: [{
     name: "srt-translator",
-    script: "./server.js",
+    script: "server.js",
     instances: "max",
     exec_mode: "cluster",
     autorestart: true,
