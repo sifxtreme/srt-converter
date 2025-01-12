@@ -27,6 +27,24 @@ const translator = new AWSTranslator(
 
 const app = express();
 
+// Add middleware to protect routes
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
 // Configure CORS
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
@@ -287,24 +305,6 @@ app.post('/auth/login', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-// Add middleware to protect routes
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    req.user = user;
-    next();
-  });
-};
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
