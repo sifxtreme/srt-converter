@@ -36,7 +36,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'No token provided' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid token' });
     }
@@ -277,7 +277,11 @@ app.post('/auth/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const user = await db.oneOrNone('SELECT * FROM users WHERE username = $1', [username]);
+    const result = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [username]
+    );
+    const user = result.rows[0];
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -293,13 +297,13 @@ app.post('/auth/login', async (req, res) => {
     const token = jwt.sign(
       {
         userId: user.id,
-        username: user.username
+        username: user.email
       },
-      JWT_SECRET,
+      process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
-    res.json({ token, username: user.username });
+    res.json({ token, username: user.email });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });

@@ -57,7 +57,7 @@ const SubtitleTranslator = () => {
 
       if (response.ok) {
         setToken(data.token); // Store the JWT token
-        setUser(data.username);
+        setUser(data.email);
         // Handle successful login (redirect, etc.)
       } else {
         setError(data.error);
