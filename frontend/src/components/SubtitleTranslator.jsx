@@ -45,7 +45,7 @@ const SubtitleTranslator = () => {
     console.log('Attempting login with:', { email }); // Don't log passwords!
 
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.LOGIN}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
