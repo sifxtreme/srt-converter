@@ -48,20 +48,30 @@ app.use(cookieParser());
 // Add session middleware here, before any routes
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
   name: 'sessionId',
+  store: new session.MemoryStore(),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.NODE_ENV === 'production' ? 'sifxtre.me' : 'localhost',
+    sameSite: 'none',
+    domain: process.env.NODE_ENV === 'production' ? '.sifxtre.me' : 'localhost',
     path: '/'
   },
   proxy: true,
   rolling: true
 }));
+
+// Add this right after your session middleware
+app.use((req, res, next) => {
+  res.set('Access-Control-Allow-Credentials', 'true');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Expose-Headers', 'Set-Cookie');
+  next();
+});
 
 // Configure multer for file upload
 const upload = multer({
@@ -304,11 +314,10 @@ app.get('/download/:setId', isAuthenticated, async (req, res) => {
 // Login endpoint
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  console.log('Login attempt:', { email }); // Don't log passwords!
+  console.log('Login attempt:', { email });
 
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-
     const user = result.rows[0];
 
     if (!user) {
@@ -323,25 +332,51 @@ app.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Set the session
     req.session.user = { id: user.id, email: user.email };
 
-    // Force session save before sending response
-    req.session.save((err) => {
+    // Force regenerate the session
+    req.session.regenerate((err) => {
       if (err) {
-        console.error('Session save error:', err);
+        console.error('Session regenerate error:', err);
         return res.status(500).json({ error: 'Failed to create session' });
       }
 
-      console.log('Session after login:', req.session);
-      console.log('Session ID:', req.session.id);
-      console.log('Cookies:', req.headers.cookie);
-      console.log('Response headers:', res.getHeaders());
+      req.session.user = { id: user.id, email: user.email };
 
-      res.json({
-        success: true,
-        user: { email: user.email },
-        sessionId: req.session.id // Include session ID in response for debugging
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error:', err);
+          return res.status(500).json({ error: 'Failed to save session' });
+        }
+
+        // Log everything about the response
+        console.log('Final session:', req.session);
+        console.log('Response headers before send:', res.getHeaders());
+        console.log('Cookie header:', res.getHeader('Set-Cookie'));
+
+        // Explicitly set the cookie in response
+        if (!res.getHeader('Set-Cookie')) {
+          const cookieOptions = {
+            maxAge: 24 * 60 * 60 * 1000,
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'none',
+            domain: process.env.NODE_ENV === 'production' ? '.sifxtre.me' : 'localhost',
+            path: '/'
+          };
+
+          res.cookie('sessionId', req.session.id, cookieOptions);
+        }
+
+        res.json({
+          success: true,
+          user: { email: user.email },
+          sessionId: req.session.id,
+          debug: {
+            sessionExists: !!req.session,
+            cookieHeader: res.getHeader('Set-Cookie')
+          }
+        });
       });
     });
   } catch (error) {
