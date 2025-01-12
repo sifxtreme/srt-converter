@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, Download, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { API_BASE_URL, API_ENDPOINTS } from '@/config';
-import { fetchWithCredentials } from '../lib/utils';
+import { setToken, removeToken } from '../lib/utils';
 
 
 const SubtitleTranslator = () => {
@@ -45,33 +45,32 @@ const SubtitleTranslator = () => {
     console.log('Attempting login with:', { email }); // Don't log passwords!
 
     try {
-      const response = await fetchWithCredentials(`${API_BASE_URL}${API_ENDPOINTS.LOGIN}`, {
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username: email, password }),
       });
 
-      console.log('Login response status:', response.status);
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Login failed');
-      }
-
       const data = await response.json();
-      console.log('Login successful:', data);
-      setUser(data.user);
-      setIsAuthenticated(true);
+
+      if (response.ok) {
+        setToken(data.token); // Store the JWT token
+        setUser(data.username);
+        // Handle successful login (redirect, etc.)
+      } else {
+        setError(data.error);
+      }
     } catch (error) {
-      console.error('Login error:', error);
-      setLoginError(error.message);
+      setError('An error occurred during login');
     }
   };
 
-  const handleLogout = async () => {
-    window.location.href = `${API_BASE_URL}${API_ENDPOINTS.LOGOUT}`;
+  const handleLogout = () => {
+    removeToken();
+    setUser(null);
+    // Handle logout (redirect, etc.)
   };
 
   if (!isAuthenticated) {
