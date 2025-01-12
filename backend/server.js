@@ -4,12 +4,11 @@ import bcrypt from 'bcrypt';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
-import session from 'express-session';
 import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import multer from 'multer';
 import pkg from 'pg';
-import cookieParser from 'cookie-parser';
+import jwt from 'jsonwebtoken';
 // local imports
 import AWSTranslator from './translation-service.js';
 import { parseSRT, generateSRT } from './srt-utils.js';
@@ -33,45 +32,12 @@ app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? ['https://srt.sifxtre.me']
     : ['http://localhost:5173', 'http://127.0.0.1:5173'],
-  credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Set-Cookie']
 }));
 
 // Parse JSON bodies
 app.use(express.json());
-
-// Add cookie parser before other middleware
-app.use(cookieParser());
-
-// Add session middleware here, before any routes
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: true,
-  saveUninitialized: true,
-  name: 'sessionId',
-  store: new session.MemoryStore(),
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000,
-    sameSite: 'none',
-    domain: process.env.NODE_ENV === 'production' ? '.sifxtre.me' : 'localhost',
-    path: '/'
-  },
-  proxy: true,
-  rolling: true
-}));
-
-// Add this right after your session middleware
-app.use((req, res, next) => {
-  res.set('Access-Control-Allow-Credentials', 'true');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.set('Access-Control-Expose-Headers', 'Set-Cookie');
-  next();
-});
 
 // Configure multer for file upload
 const upload = multer({
@@ -92,32 +58,6 @@ const pool = new Pool({
   port: parseInt(process.env.POSTGRES_PORT) || 5432,
 });
 
-// Authentication middleware
-const isAuthenticated = (req, res, next) => {
-  console.log('Auth check - Session:', {
-    id: req.session.id,
-    user: req.session.user,
-    cookie: req.session.cookie
-  });
-  console.log('Auth check - Headers:', {
-    cookie: req.headers.cookie,
-    origin: req.headers.origin,
-    referer: req.headers.referer
-  });
-
-  if (!req.session || !req.session.user) {
-    return res.status(401).json({
-      error: 'Unauthorized - Please log in',
-      debug: {
-        hasSession: !!req.session,
-        hasSessionUser: !!(req.session && req.session.user),
-        sessionID: req.session?.id
-      }
-    });
-  }
-  next();
-};
-
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
@@ -126,7 +66,10 @@ app.get('/health', async (req, res) => {
       status: 'ok',
       message: 'Server is running',
       database: 'connected',
-      environment: process.env.NODE_ENV || 'development'
+      environment: process.env.NODE_ENV || 'development',
+      authenticated: req.headers.authorization ?
+        jwt.verify(req.headers.authorization.split(' ')[1], process.env.JWT_SECRET) ? true : false
+        : false
     });
   } catch (error) {
     res.status(500).json({ status: 'error', message: 'Server is running but database connection failed', error: error.message });
@@ -134,7 +77,7 @@ app.get('/health', async (req, res) => {
 });
 
 // Upload endpoint
-app.post('/upload', isAuthenticated, upload.single('srt'), async (req, res) => {
+app.post('/upload', authenticateToken, upload.single('srt'), async (req, res) => {
   try {
     const fileContent = await fs.readFile(req.file.path, 'utf-8');
     const subtitles = parseSRT(fileContent);
@@ -188,7 +131,7 @@ app.post('/upload', isAuthenticated, upload.single('srt'), async (req, res) => {
 });
 
 // Add a new endpoint for SSE connection
-app.get('/translation-progress/:setId', isAuthenticated, (req, res) => {
+app.get('/translation-progress/:setId', authenticateToken, (req, res) => {
   const { setId } = req.params;
 
   res.writeHead(200, {
@@ -213,7 +156,7 @@ app.get('/translation-progress/:setId', isAuthenticated, (req, res) => {
 });
 
 // Update the translation endpoint
-app.post('/translate/:setId', isAuthenticated, async (req, res) => {
+app.post('/translate/:setId', authenticateToken, async (req, res) => {
   try {
     const { setId } = req.params;
     const client = await pool.connect();
@@ -288,7 +231,7 @@ app.post('/translate/:setId', isAuthenticated, async (req, res) => {
 });
 
 // Download endpoint
-app.get('/download/:setId', isAuthenticated, async (req, res) => {
+app.get('/download/:setId', authenticateToken, async (req, res) => {
   try {
     const { setId } = req.params;
     const { rows } = await pool.query(
@@ -313,91 +256,55 @@ app.get('/download/:setId', isAuthenticated, async (req, res) => {
 
 // Login endpoint
 app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  console.log('Login attempt:', { email });
+  const { username, password } = req.body;
 
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    const user = result.rows[0];
+    const user = await db.oneOrNone('SELECT * FROM users WHERE username = $1', [username]);
 
     if (!user) {
-      console.log('No user found with this email');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const validPassword = await bcrypt.compare(password, user.password_hash);
+    const isValid = await bcrypt.compare(password, user.password_hash);
 
-    if (!validPassword) {
-      console.log('Invalid password');
+    if (!isValid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    req.session.user = { id: user.id, email: user.email };
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        username: user.username
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
-    // Force regenerate the session
-    req.session.regenerate((err) => {
-      if (err) {
-        console.error('Session regenerate error:', err);
-        return res.status(500).json({ error: 'Failed to create session' });
-      }
-
-      req.session.user = { id: user.id, email: user.email };
-
-      req.session.save((err) => {
-        if (err) {
-          console.error('Session save error:', err);
-          return res.status(500).json({ error: 'Failed to save session' });
-        }
-
-        // Log everything about the response
-        console.log('Final session:', req.session);
-        console.log('Response headers before send:', res.getHeaders());
-        console.log('Cookie header:', res.getHeader('Set-Cookie'));
-
-        // Explicitly set the cookie in response
-        if (!res.getHeader('Set-Cookie')) {
-          const cookieOptions = {
-            maxAge: 24 * 60 * 60 * 1000,
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'none',
-            domain: process.env.NODE_ENV === 'production' ? '.sifxtre.me' : 'localhost',
-            path: '/'
-          };
-
-          res.cookie('sessionId', req.session.id, cookieOptions);
-        }
-
-        res.json({
-          success: true,
-          user: { email: user.email },
-          sessionId: req.session.id,
-          debug: {
-            sessionExists: !!req.session,
-            cookieHeader: res.getHeader('Set-Cookie')
-          }
-        });
-      });
-    });
+    res.json({ token, username: user.username });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Auth status endpoint
-app.get('/auth/status', (req, res) => {
-  res.json({
-    isAuthenticated: !!req.session.user,
-    user: req.session.user
-  });
-});
+// Add middleware to protect routes
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-// Logout endpoint
-app.get('/auth/logout', (req, res) => {
-  req.session.destroy();
-  res.json({ success: true });
-});
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
