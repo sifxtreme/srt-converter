@@ -29,11 +29,13 @@ const app = express();
 
 // Configure CORS
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://srt.sifxtre.me'],
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://srt.sifxtre.me']
+    : ['http://localhost:5173', 'http://127.0.0.1:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['set-cookie']
+  exposedHeaders: ['Set-Cookie']
 }));
 
 // Parse JSON bodies
@@ -50,10 +52,11 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     domain: process.env.NODE_ENV === 'production'
-      ? '.sifxtre.me'  // The dot prefix allows the cookie to work across all subdomains
-      : 'localhost'
+      ? 'sifxtre.me'  // Remove the leading dot, just use the apex domain
+      : 'localhost',
+    path: '/'
   },
-  proxy: process.env.NODE_ENV === 'production'
+  proxy: true
 }));
 
 // Configure multer for file upload
@@ -77,6 +80,9 @@ const pool = new Pool({
 
 // Authentication middleware
 const isAuthenticated = (req, res, next) => {
+  console.log('Session in auth check:', req.session);
+  console.log('Cookies received:', req.headers.cookie);
+
   if (!req.session || !req.session.user) {
     return res.status(401).json({ error: 'Unauthorized - Please log in' });
   }
@@ -299,6 +305,10 @@ app.post('/auth/login', async (req, res) => {
     }
 
     req.session.user = { id: user.id, email: user.email };
+
+    console.log('Session after login:', req.session);
+    console.log('Cookies being set:', res.getHeader('Set-Cookie'));
+
     res.json({ success: true, user: { email: user.email } });
   } catch (error) {
     console.error('Login error:', error);
