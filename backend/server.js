@@ -84,7 +84,12 @@ const isAuthenticated = (req, res, next) => {
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
-    res.json({ status: 'ok', message: 'Server is running', database: 'connected' });
+    res.json({
+      status: 'ok',
+      message: 'Server is running',
+      database: 'connected',
+      environment: process.env.NODE_ENV || 'development'
+    });
   } catch (error) {
     res.status(500).json({ status: 'error', message: 'Server is running but database connection failed', error: error.message });
   }
