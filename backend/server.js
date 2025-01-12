@@ -29,8 +29,10 @@ const app = express();
 
 // Add middleware to protect routes
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const queryToken = req.query?.token
+
+  const authHeader = req.headers['authorization'] || req.query?.token;
+  const token = (authHeader && authHeader.split(' ')[1]) || queryToken;
 
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
@@ -149,7 +151,7 @@ app.post('/upload', authenticateToken, upload.single('srt'), async (req, res) =>
 });
 
 // Add a new endpoint for SSE connection
-app.get('/translation-progress/:setId', authenticateToken, (req, res) => {
+app.get('/translation-progress/:setId', (req, res) => {
   const { setId } = req.params;
 
   res.writeHead(200, {
@@ -269,6 +271,28 @@ app.get('/download/:setId', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to download subtitles' });
+  }
+});
+
+// Add this before the login endpoint
+app.get('/auth/status', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT email FROM users WHERE id = $1',
+      [req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      authenticated: true,
+      username: result.rows[0].email
+    });
+  } catch (error) {
+    console.error('Auth status error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

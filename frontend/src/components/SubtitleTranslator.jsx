@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, Download, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { API_BASE_URL, API_ENDPOINTS } from '@/config';
-import { setToken, removeToken } from '../lib/utils';
+import { setToken, getToken,removeToken } from '../lib/utils';
 
 
 const SubtitleTranslator = () => {
@@ -28,11 +28,13 @@ const SubtitleTranslator = () => {
   const checkAuthStatus = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.AUTH_STATUS}`, {
-        credentials: 'include'
+        headers: {
+          'Authorization': `Bearer ${getToken()}`,
+        }
       });
       const data = await response.json();
-      setIsAuthenticated(data.isAuthenticated);
-      setUser(data.user);
+      setIsAuthenticated(data.authenticated);
+      setUser(data.username);
     } catch (error) {
       console.error('Error checking auth status:', error);
     }
@@ -41,8 +43,6 @@ const SubtitleTranslator = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-
-    console.log('Attempting login with:', { email }); // Don't log passwords!
 
     try {
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.LOGIN}`, {
@@ -56,14 +56,17 @@ const SubtitleTranslator = () => {
       const data = await response.json();
 
       if (response.ok) {
-        setToken(data.token); // Store the JWT token
+        setToken(data.token);
         setUser(data.email);
-        // Handle successful login (redirect, etc.)
+        setIsAuthenticated(true);
+        setEmail('');
+        setPassword('');
       } else {
-        setError(data.error);
+        setLoginError(data.error || 'Login failed');
       }
     } catch (error) {
-      setError('An error occurred during login');
+      setLoginError('An error occurred during login');
+      console.error('Login error:', error);
     }
   };
 
@@ -125,13 +128,6 @@ const SubtitleTranslator = () => {
     }
   };
 
-  const fetchOptions = {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  };
-
   const uploadFile = async (file) => {
     const formData = new FormData();
     formData.append('srt', file);
@@ -139,7 +135,9 @@ const SubtitleTranslator = () => {
     try {
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.UPLOAD}`, {
         method: 'POST',
-        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${getToken()}`,
+        },
         body: formData,
       });
 
@@ -166,10 +164,10 @@ const SubtitleTranslator = () => {
     setTranslating(true);
     setProgress({ current: 0, total: 0 });
 
-    // Set up SSE connection
-    const eventSource = new EventSource(`${API_BASE_URL}/translation-progress/${setId}`, {
-      withCredentials: true
-    });
+    // Update SSE connection to include token
+    const eventSource = new EventSource(
+      `${API_BASE_URL}/translation-progress/${setId}`,
+    );
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -178,7 +176,6 @@ const SubtitleTranslator = () => {
       if (data.completed) {
         eventSource.close();
         setTranslating(false);
-        // Ensure the progress shows completion state
         setProgress({
           ...data,
           current: data.total,
@@ -191,9 +188,9 @@ const SubtitleTranslator = () => {
     try {
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.TRANSLATE(setId)}`, {
         method: 'POST',
-        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`,
         },
       });
 
@@ -218,7 +215,7 @@ const SubtitleTranslator = () => {
     if (!currentSetId) return;
 
     try {
-      window.location.href = `${API_BASE_URL}${API_ENDPOINTS.DOWNLOAD(currentSetId)}`;
+      window.location.href = `${API_BASE_URL}${API_ENDPOINTS.DOWNLOAD(currentSetId)}?token=${getToken()}`;
     } catch (err) {
       setError('Failed to download file: ' + err.message);
     }
