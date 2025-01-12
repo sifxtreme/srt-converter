@@ -46,7 +46,10 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    domain: process.env.NODE_ENV === 'production'
+      ? '.sifxtre.me'  // The dot prefix allows the cookie to work across all subdomains
+      : 'localhost'
   }
 }));
 
