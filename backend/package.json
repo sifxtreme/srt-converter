@@ -4,7 +4,7 @@
   "description": "Backend service for SRT translation",
   "main": "server.js",
   "scripts": {
-    "start": "pm2 start ecosystem.config.js --env production",
+    "start": "NODE_ENV=production pm2 start server.js --name srt-translator -i max --log ./logs/out.log --error ./logs/error.log",
     "dev": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "npm install --production"
