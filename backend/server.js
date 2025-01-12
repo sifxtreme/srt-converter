@@ -9,6 +9,7 @@ import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import multer from 'multer';
 import pkg from 'pg';
+import cookieParser from 'cookie-parser';
 // local imports
 import AWSTranslator from './translation-service.js';
 import { parseSRT, generateSRT } from './srt-utils.js';
@@ -41,22 +42,25 @@ app.use(cors({
 // Parse JSON bodies
 app.use(express.json());
 
+// Add cookie parser before other middleware
+app.use(cookieParser());
+
 // Add session middleware here, before any routes
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
+  name: 'sessionId',
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    maxAge: 24 * 60 * 60 * 1000,
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.NODE_ENV === 'production'
-      ? 'sifxtre.me'  // Remove the leading dot, just use the apex domain
-      : 'localhost',
+    domain: process.env.NODE_ENV === 'production' ? 'sifxtre.me' : 'localhost',
     path: '/'
   },
-  proxy: true
+  proxy: true,
+  rolling: true
 }));
 
 // Configure multer for file upload
@@ -80,11 +84,26 @@ const pool = new Pool({
 
 // Authentication middleware
 const isAuthenticated = (req, res, next) => {
-  console.log('Session in auth check:', req.session);
-  console.log('Cookies received:', req.headers.cookie);
+  console.log('Auth check - Session:', {
+    id: req.session.id,
+    user: req.session.user,
+    cookie: req.session.cookie
+  });
+  console.log('Auth check - Headers:', {
+    cookie: req.headers.cookie,
+    origin: req.headers.origin,
+    referer: req.headers.referer
+  });
 
   if (!req.session || !req.session.user) {
-    return res.status(401).json({ error: 'Unauthorized - Please log in' });
+    return res.status(401).json({
+      error: 'Unauthorized - Please log in',
+      debug: {
+        hasSession: !!req.session,
+        hasSessionUser: !!(req.session && req.session.user),
+        sessionID: req.session?.id
+      }
+    });
   }
   next();
 };
@@ -304,12 +323,27 @@ app.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    // Set the session
     req.session.user = { id: user.id, email: user.email };
 
-    console.log('Session after login:', req.session);
-    console.log('Cookies being set:', res.getHeader('Set-Cookie'));
+    // Force session save before sending response
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.status(500).json({ error: 'Failed to create session' });
+      }
 
-    res.json({ success: true, user: { email: user.email } });
+      console.log('Session after login:', req.session);
+      console.log('Session ID:', req.session.id);
+      console.log('Cookies:', req.headers.cookie);
+      console.log('Response headers:', res.getHeaders());
+
+      res.json({
+        success: true,
+        user: { email: user.email },
+        sessionId: req.session.id // Include session ID in response for debugging
+      });
+    });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Server error' });
