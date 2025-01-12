@@ -93,6 +93,12 @@ POSTGRES_PORT=5432
 SESSION_SECRET=your_session_secret_here
 ```
 
+### Run in Production
+
+```
+NODE_ENV=production pm2 start server.js --name srt-translator -i 1 --log ./logs/out.log --error ./logs/error.log
+```
+
 ---
 
 ## Usage

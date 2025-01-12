@@ -33,6 +33,7 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['set-cookie']
 }));
 
 // Parse JSON bodies
@@ -47,10 +48,12 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     domain: process.env.NODE_ENV === 'production'
       ? '.sifxtre.me'  // The dot prefix allows the cookie to work across all subdomains
       : 'localhost'
-  }
+  },
+  proxy: process.env.NODE_ENV === 'production'
 }));
 
 // Configure multer for file upload
